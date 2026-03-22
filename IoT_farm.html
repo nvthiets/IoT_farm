@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Agriculture - Enhanced Chart UI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        body { background-image: url('https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=2000&auto=format&fit=crop'); background-size: cover; background-position: center; background-repeat: no-repeat; background-attachment: fixed; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1a252f; margin: 0; }
+        .page-overlay { 
+            background-color: rgba(0, 0, 0, 0.2); 
+            min-height: 100vh;
+            padding: 20px 15px; 
+        }
+        h3.dashboard-title { 
+            color: #fff; 
+            text-shadow: 0 2px 5px rgba(0,0,0,0.8); 
+            font-weight: 700; 
+            margin-bottom: 25px; 
+            font-size: 2rem; 
+            letter-spacing: 1px; 
+        }
+        .card { 
+            background: rgba(255, 255, 255, 0.45); 
+            backdrop-filter: blur(15px); 
+            -webkit-backdrop-filter: blur(15px); 
+            border: 1px solid rgba(255, 255, 255, 0.6); 
+            border-radius: 12px; 
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15); 
+            margin-bottom: 20px; 
+        }
+        .card-header { 
+            background-color: rgba(255, 255, 255, 0.3);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.5); 
+            font-weight: 700; 
+            font-size: 1rem; 
+            padding: 12px 15px; 
+            border-radius: 12px 12px 0 0 !important; 
+            color: #2c3e50; 
+            text-shadow: 0 1px 1px rgba(255,255,255,0.7); 
+        }
+        .card-body { 
+            padding: 10px; 
+        } 
+        .gauge-container { 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            margin: 15px 0; 
+        }
+        .circular-gauge { 
+            width: 120px; 
+            height: 120px; 
+            border-radius: 50%; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            position: relative; 
+            box-shadow: inset 0 2px 6px rgba(0,0,0,0.15); 
+            transition: background 0.5s ease; 
+        }
+        .circular-gauge::before { 
+            content: ""; 
+            position: absolute; 
+            width: 88px; 
+            height: 88px; 
+            background-color: rgba(255, 255, 255, 0.85); 
+            border-radius: 50%; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1); 
+        }
+        .gauge-value { 
+            position: relative; 
+            font-size: 24px; 
+            font-weight: bold; 
+            color: #222; 
+            text-align: center; 
+            line-height: 1.1; 
+        }
+        .gauge-icon { 
+            display: block; 
+            font-size: 18px; 
+            color: #555; 
+            margin-bottom: 5px; 
+        }
+        .switch { 
+            position: relative; 
+            display: inline-block; 
+            width: 60px; 
+            height: 34px; 
+            margin-bottom: 0; }
+        .switch input { 
+            opacity: 0; 
+            width: 0; 
+            height: 0; }
+        .slider { 
+            position: absolute; 
+            cursor: pointer; 
+            top: 0; left: 0; 
+            right: 0; 
+            bottom: 0; 
+            background-color: rgba(0,0,0,0.25); 
+            transition: .4s; 
+            border-radius: 34px; 
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.3); 
+            border: 1px solid rgba(255,255,255,0.4); 
+        }
+        .slider:before {
+            position: absolute; 
+            content: ""; 
+            height: 26px; 
+            width: 26px; 
+            left: 3px; 
+            bottom: 3px; 
+            background-color: white; 
+            transition: .4s; 
+            border-radius: 50%; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.4); 
+        }
+        input:checked + .slider { 
+            background-color: #20c997; 
+            border-color: #20c997;
+        }
+        input:checked + .slider:before { 
+            transform: translateX(26px); 
+        }
+        .form-label { 
+            font-size: 1rem; 
+            margin-bottom: 5px; 
+            font-weight: 600; 
+            color: #222; }
+        h6 { 
+            font-size: 1.1rem; 
+            font-weight: 700; 
+            margin-bottom: 12px !important; 
+            color: #222; 
+        }
+        .form-range { 
+            height: 1.2rem; 
+        }
+        .log-box { 
+            height: 204.5px; 
+            overflow-y: auto; 
+            background-color: rgba(255, 255, 255, 0.45); 
+            padding: 15px; 
+            border-radius: 8px; 
+            font-family: 'Consolas', monospace; 
+            font-size: 14px; 
+            border: 1px solid rgba(255, 255, 255, 0.6); 
+            color: #111; 
+            font-weight: 500; 
+        }
+    </style>
+</head>
+<body>
+<div class="page-overlay">
+    <div class="container-fluid">
+        <h3 class="text-center dashboard-title" style="font-size: 1.6rem;">
+            <i class="fas fa-leaf text-success" style="text-shadow: none;"></i> Smart Farm
+            <div id="mqtt-status" style="font-size: 0.9rem; color: #ff4757; margin-top: 5px;">(Mất kết nối)</div>
+        </h3>
+
+        <div class="row">
+            <div class="col-lg-4">
+                <div class="row g-3"> 
+                    <div class="col-6 col-md-12">
+                        <div class="card text-center h-100">
+                            <div class="card-header" style="font-size: 0.9rem;"><i class="fas fa-temperature-high text-danger"></i> Nhiệt độ</div>
+                            <div class="card-body gauge-container">
+                                <div class="circular-gauge" id="gauge-temp" style="background: conic-gradient(#ff4757 0%, rgba(255,255,255,0.3) 0%);">
+                                    <div class="gauge-value"><i class="fas fa-thermometer-half gauge-icon"></i><span id="val-temp">--</span>°C</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-12">
+                        <div class="card text-center h-100">
+                            <div class="card-header" style="font-size: 0.9rem;"><i class="fas fa-tint text-primary"></i> Độ ẩm K.khí</div>
+                            <div class="card-body gauge-container">
+                                <div class="circular-gauge" id="gauge-humi" style="background: conic-gradient(#1e90ff 0%, rgba(255,255,255,0.3) 0%);">
+                                    <div class="gauge-value"><i class="fas fa-cloud gauge-icon"></i><span id="val-humi">--</span>%</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-12">
+                        <div class="card text-center h-100">
+                            <div class="card-header" style="font-size: 0.9rem;"><i class="fas fa-seedling text-success"></i> Độ ẩm đất</div>
+                            <div class="card-body gauge-container">
+                                <div class="circular-gauge" id="gauge-soil" style="background: conic-gradient(#20c997 0%, rgba(255,255,255,0.3) 0%);">
+                                    <div class="gauge-value"><i class="fas fa-water gauge-icon"></i><span id="val-soil">--</span>%</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-12">
+                        <div class="card text-center h-100">
+                            <div class="card-header" style="font-size: 0.9rem;"><i class="fas fa-sun text-warning"></i> Cường độ sáng</div>
+                            <div class="card-body gauge-container">
+                                <div class="circular-gauge" id="gauge-light" style="background: conic-gradient(#fca311 0%, rgba(255,255,255,0.3) 0%);">
+                                    <div class="gauge-value"><i class="far fa-sun gauge-icon"></i><span id="val-light">--</span>%</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-8 mt-4 mt-lg-0">
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-chart-area"></i> Biểu đồ Xu hướng Môi trường</div>
+                    <div class="card-body" style="height: 350px;">
+                        <canvas id="envChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="row g-3 mt-3">
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-header"><i class="fas fa-sliders-h"></i> Cài đặt Ngưỡng (Tự động)</div>
+                            <div class="card-body">
+                                <div class="mb-4">
+                                    <label class="form-label d-flex justify-content-between">
+                                        <span><i class="fas fa-seedling text-success"></i> Ngưỡng Độ ẩm đất (Bật Bơm):</span> 
+                                        <span id="thresh-soil-val" class="fw-bold text-success">40%</span>
+                                    </label>
+                                    <input type="range" class="form-range" id="thresh-soil" min="0" max="100" value="40">
+                                </div>
+                                <div>
+                                    <label class="form-label d-flex justify-content-between">
+                                        <span><i class="fas fa-temperature-high text-danger"></i> Ngưỡng Nhiệt độ (Bật Quạt):</span> 
+                                        <span id="thresh-temp-val" class="fw-bold text-danger">30°C</span>
+                                    </label>
+                                    <input type="range" class="form-range" id="thresh-temp" min="20" max="50" value="30">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-header d-flex flex-wrap justify-content-between align-items-center">
+                                <span class="mb-1 mb-sm-0" style="font-size: 0.95rem;"><i class="fas fa-gamepad"></i> Điều khiển Thiết bị</span>
+                                <div class="d-flex align-items-center">
+                                    <span class="me-2 text-dark" style="font-size:0.85rem; font-weight:bold;" id="mode-label">TỰ ĐỘNG</span>
+                                    <label class="switch" style="transform: scale(0.85); margin-bottom: 0;">
+                                        <input type="checkbox" id="mode-switch" checked>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="card-body d-flex justify-content-around align-items-center text-center" id="manual-controls-container" style="opacity: 0.4;">
+                                <div>
+                                    <h6>Quạt (R1)</h6>
+                                    <label class="switch mt-2">
+                                        <input type="checkbox" class="manual-control" id="btn-relay1" disabled>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                                <div>
+                                    <h6>Bơm (R2)</h6>
+                                    <label class="switch mt-2">
+                                        <input type="checkbox" class="manual-control" id="btn-relay2" disabled>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mt-4 mb-0">
+                    <div class="card-header"><i class="fas fa-terminal"></i> Nhật ký hoạt động (System Log)</div>
+                    <div class="card-body">
+                        <div class="log-box" id="system-log"></div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const ctx = document.getElementById('envChart').getContext('2d');
+    Chart.defaults.color = '#111';
+    Chart.defaults.font.weight = '600';
+    Chart.defaults.font.size = 13;
+
+    const envChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [], 
+            datasets: [
+                { label: 'Nhiệt độ (°C)', data: [], borderColor: '#ff4757', backgroundColor: 'rgba(255, 71, 87, 0.25)', borderWidth: 3, pointRadius: 4, tension: 0.4, fill: true, yAxisID: 'y' },
+                { label: 'Độ ẩm (%)', data: [], borderColor: '#1e90ff', backgroundColor: 'rgba(30, 144, 255, 0.25)', borderWidth: 3, pointRadius: 4, tension: 0.4, fill: true, yAxisID: 'y1' }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            scales: {
+                x: { grid: { color: 'rgba(0,0,0,0.08)' } },
+                y: { type: 'linear', display: true, position: 'left', min: 10, max: 50, ticks: { color: '#ff4757' }, grid: { color: 'rgba(0,0,0,0.08)' } },
+                y1: { type: 'linear', display: true, position: 'right', min: 30, max: 100, ticks: { color: '#1e90ff' }, grid: { drawOnChartArea: false } }
+            }
+        }
+    });
+
+    function addLog(msg) {
+        const box = document.getElementById('system-log');
+        const time = new Date().toLocaleTimeString('vi-VN', {hour12: false});
+        box.innerHTML += `<div style="margin-bottom: 4px;"><span style="color:#000; font-weight:bold;">[${time}]</span> ${msg}</div>`;
+        box.scrollTop = box.scrollHeight;
+    }
+
+    //const mqttClient = mqtt.connect('ws://localhost:8000/mqtt');
+    const mqttClient = mqtt.connect('ws://172.20.10.2:8000/mqtt');
+    let lastChartUpdateTime = 0; 
+
+    mqttClient.on('connect', function () {
+        document.getElementById('mqtt-status').innerText = "(Đã kết nối WiFi)";
+        document.getElementById('mqtt-status').style.color = "#20c997";
+        addLog("✅ Đã kết nối thành công tới trạm MQTT HiveMQ.");
+        
+        // Đăng ký nhận dữ liệu
+        mqttClient.subscribe('smartfarm/sensors');
+        mqttClient.subscribe('smartfarm/status/relay1');
+        mqttClient.subscribe('smartfarm/status/relay2');
+        mqttClient.subscribe('smartfarm/status/mode');
+        mqttClient.subscribe('smartfarm/status/buzzer');
+        mqttClient.subscribe('smartfarm/status/threshold/temp');
+        mqttClient.subscribe('smartfarm/status/threshold/soil');
+    });
+
+    mqttClient.on('error', function (error) { addLog(`❌ Lỗi kết nối MQTT: ${error}`); });
+
+    mqttClient.on('message', function (topic, message) {
+        const msgStr = message.toString();
+
+        if (topic === 'smartfarm/sensors') {
+            try {
+                const data = JSON.parse(msgStr);
+                
+                document.getElementById('val-temp').innerText = data.temp.toFixed(1);
+                document.getElementById('val-humi').innerText = data.hum.toFixed(1);
+                document.getElementById('val-soil').innerText = data.soil;
+                document.getElementById('val-light').innerText = data.light;
+
+                document.getElementById('gauge-temp').style.background = `conic-gradient(#ff4757 0% ${(data.temp/50)*100}%, rgba(255,255,255,0.3) 0%)`;
+                document.getElementById('gauge-humi').style.background = `conic-gradient(#1e90ff 0% ${data.hum}%, rgba(255,255,255,0.3) 0%)`;
+                document.getElementById('gauge-soil').style.background = `conic-gradient(#20c997 0% ${data.soil}%, rgba(255,255,255,0.3) 0%)`;
+                document.getElementById('gauge-light').style.background = `conic-gradient(#fca311 0% ${data.light}%, rgba(255,255,255,0.3) 0%)`;
+
+                const currentTime = Date.now();
+                if (currentTime - lastChartUpdateTime >= 60000) { 
+                    envChart.data.labels.push(data.time);
+                    envChart.data.datasets[0].data.push(data.temp);
+                    envChart.data.datasets[1].data.push(data.hum);
+
+                    if (envChart.data.labels.length > 20) {
+                        envChart.data.labels.shift();
+                        envChart.data.datasets[0].data.shift();
+                        envChart.data.datasets[1].data.shift();
+                    }
+                    envChart.update();
+                    lastChartUpdateTime = currentTime;
+                }
+            } catch (e) { console.error("Lỗi parse JSON", e); }
+        }
+
+        if (topic === 'smartfarm/status/mode') {
+            const isAuto = (msgStr === "AUTO");
+            document.getElementById('mode-switch').checked = isAuto;
+            
+            const modeLabel = document.getElementById('mode-label');
+            modeLabel.innerText = isAuto ? "TỰ ĐỘNG" : "THỦ CÔNG";
+            modeLabel.style.color = isAuto ? "#05c46b" : "#222";
+            
+            document.querySelectorAll('.manual-control').forEach(ctrl => ctrl.disabled = isAuto);
+            document.getElementById('manual-controls-container').style.opacity = isAuto ? "0.4" : "1";
+            addLog(`Phần cứng vừa chuyển sang chế độ: <b>${msgStr}</b>`);
+        }
+        
+        if (topic === 'smartfarm/status/relay1') document.getElementById('btn-relay1').checked = (msgStr === "ON");
+        if (topic === 'smartfarm/status/relay2') document.getElementById('btn-relay2').checked = (msgStr === "ON");
+        
+        // --- XỬ LÝ LOGIC CÒI BÁO (HIỂN THỊ LOG THAY VÌ CÔNG TẮC) ---
+        if (topic === 'smartfarm/status/buzzer') {
+            if (msgStr === "ON") addLog("⚠️ <span style='color:red;'>CẢNH BÁO: Vượt ngưỡng! Còi đang báo động (5s)...</span>");
+            else addLog("✅ Còi đã tự động tắt sau 5 giây.");
+        }
+
+        // --- ĐỒNG BỘ THANH TRƯỢT KHI BẤM PHÍM CỨNG MẠCH ---
+        if (topic === 'smartfarm/status/threshold/temp') {
+            document.getElementById('thresh-temp').value = msgStr;
+            document.getElementById('thresh-temp-val').innerText = msgStr + '°C';
+        }
+        if (topic === 'smartfarm/status/threshold/soil') {
+            document.getElementById('thresh-soil').value = msgStr;
+            document.getElementById('thresh-soil-val').innerText = msgStr + '%';
+        }
+    });
+
+    const modeSwitch = document.getElementById('mode-switch');
+    const modeLabel = document.getElementById('mode-label');
+    const manualControls = document.querySelectorAll('.manual-control');
+    const manualContainer = document.getElementById('manual-controls-container');
+
+    modeSwitch.addEventListener('change', function() {
+        const isAuto = this.checked;
+        modeLabel.innerText = isAuto ? "TỰ ĐỘNG" : "THỦ CÔNG";
+        modeLabel.style.color = isAuto ? "#05c46b" : "#222";
+        
+        manualControls.forEach(ctrl => ctrl.disabled = isAuto);
+        manualContainer.style.opacity = isAuto ? "0.4" : "1";
+        
+        const modeCmd = isAuto ? "AUTO" : "MANUAL";
+        mqttClient.publish('smartfarm/control/mode', modeCmd);
+        addLog(`Đã chuyển sang chế độ: <b>${modeCmd}</b>`);
+    });
+
+    document.getElementById('thresh-soil').addEventListener('change', function() { 
+        document.getElementById('thresh-soil-val').innerText = this.value + '%'; 
+        mqttClient.publish('smartfarm/control/threshold/soil', this.value);
+        addLog(`Đã cài đặt ngưỡng ẩm đất: ${this.value}%`);
+    });
+    document.getElementById('thresh-soil').addEventListener('input', function() { document.getElementById('thresh-soil-val').innerText = this.value + '%'; });
+
+    document.getElementById('thresh-temp').addEventListener('change', function() { 
+        document.getElementById('thresh-temp-val').innerText = this.value + '°C'; 
+        mqttClient.publish('smartfarm/control/threshold/temp', this.value);
+        addLog(`Đã cài đặt ngưỡng nhiệt độ: ${this.value}°C`);
+    });
+    document.getElementById('thresh-temp').addEventListener('input', function() { document.getElementById('thresh-temp-val').innerText = this.value + '°C'; });
+
+    document.getElementById('btn-relay1').addEventListener('change', function() {
+        const cmd = this.checked ? "ON" : "OFF";
+        mqttClient.publish('smartfarm/control/relay1', cmd);
+        addLog(`Lệnh thủ công: Quạt -> ${cmd}`);
+    });
+    document.getElementById('btn-relay2').addEventListener('change', function() {
+        const cmd = this.checked ? "ON" : "OFF";
+        mqttClient.publish('smartfarm/control/relay2', cmd);
+        addLog(`Lệnh thủ công: Bơm -> ${cmd}`);
+    });
+
+    addLog("Giao diện đã khởi tạo. Đang chờ kết nối MQTT...");
+</script>
+</body>
+</html>
