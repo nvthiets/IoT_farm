@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Agriculture - Enhanced Chart UI</title>
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="page-overlay">
+    <div class="container-fluid">
+        <h3 class="text-center dashboard-title" style="font-size: 1.6rem;">
+            <i class="fas fa-leaf text-success" style="text-shadow: none;"></i> Smart Farm Dashboard 
+            <div id="mqtt-status" style="font-size: 0.95rem; color: #ff4757; margin-top: 5px;">(Mất kết nối)</div>
+        </h3>
+
+        <div class="row">
+            <div class="col-lg-4">
+                <div class="row g-3">
+                    <div class="col-6 col-md-12">
+                        <div class="card text-center h-100">
+                            <div class="card-header" style="font-size: 0.9rem;"><i class="fas fa-temperature-high text-danger"></i> Nhiệt độ</div>
+                            <div class="card-body gauge-container">
+                                <div class="circular-gauge" id="gauge-temp" style="background: conic-gradient(#ff4757 0%, rgba(255,255,255,0.3) 0%);">
+                                    <div class="gauge-value"><i class="fas fa-thermometer-half gauge-icon"></i><span id="val-temp">--</span>°C</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-12">
+                        <div class="card text-center h-100">
+                            <div class="card-header" style="font-size: 0.9rem;"><i class="fas fa-tint text-primary"></i> Độ ẩm không khí</div>
+                            <div class="card-body gauge-container">
+                                <div class="circular-gauge" id="gauge-humi" style="background: conic-gradient(#1e90ff 0%, rgba(255,255,255,0.3) 0%);">
+                                    <div class="gauge-value"><i class="fas fa-cloud gauge-icon"></i><span id="val-humi">--</span>%</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-12">
+                        <div class="card text-center h-100">
+                            <div class="card-header" style="font-size: 0.9rem;"><i class="fas fa-seedling text-success"></i> Độ ẩm đất</div>
+                            <div class="card-body gauge-container">
+                                <div class="circular-gauge" id="gauge-soil" style="background: conic-gradient(#20c997 0%, rgba(255,255,255,0.3) 0%);">
+                                    <div class="gauge-value"><i class="fas fa-water gauge-icon"></i><span id="val-soil">--</span>%</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-12">
+                        <div class="card text-center h-100">
+                            <div class="card-header" style="font-size: 0.9rem;"><i class="fas fa-sun text-warning"></i> Cường độ sáng</div>
+                            <div class="card-body gauge-container">
+                                <div class="circular-gauge" id="gauge-light" style="background: conic-gradient(#fca311 0%, rgba(255,255,255,0.3) 0%);">
+                                    <div class="gauge-value"><i class="far fa-sun gauge-icon"></i><span id="val-light">--</span>%</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-8 mt-4 mt-lg-0">
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-chart-area"></i> Biểu đồ Xu hướng Môi trường</div>
+                    <div class="card-body" style="height: 350px;">
+                        <canvas id="envChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="row g-3 mt-1">
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-header"><i class="fas fa-sliders-h"></i> Cài đặt Ngưỡng (Tự động)</div>
+                            <div class="card-body">
+                                <div class="mb-4">
+                                    <label class="form-label d-flex justify-content-between">
+                                        <span><i class="fas fa-seedling text-success"></i> Độ ẩm đất (Bật Bơm):</span> 
+                                        <span id="thresh-soil-val" class="fw-bold text-success">40%</span>
+                                    </label>
+                                    <input type="range" class="form-range" id="thresh-soil" min="0" max="100" value="40">
+                                </div>
+                                <div>
+                                    <label class="form-label d-flex justify-content-between">
+                                        <span><i class="fas fa-temperature-high text-danger"></i> Nhiệt độ (Bật Quạt):</span> 
+                                        <span id="thresh-temp-val" class="fw-bold text-danger">30°C</span>
+                                    </label>
+                                    <input type="range" class="form-range" id="thresh-temp" min="20" max="50" value="30">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-header d-flex flex-wrap justify-content-between align-items-center">
+                                <span class="mb-1 mb-sm-0"><i class="fas fa-gamepad"></i> Điều khiển Thiết bị</span>
+                                <div class="d-flex align-items-center">
+                                    <span class="me-2 text-dark" style="font-size:0.9rem; font-weight:bold;" id="mode-label">TỰ ĐỘNG</span>
+                                    <label class="switch" style="transform: scale(0.9); margin-bottom: 0;">
+                                        <input type="checkbox" id="mode-switch" checked>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div class="card-body d-flex justify-content-around align-items-center py-3" id="manual-controls-container" style="opacity: 0.4;">
+                                <div class="control-item">
+                                    <h6>Quạt (R1)</h6>
+                                    <label class="switch mt-2">
+                                        <input type="checkbox" class="manual-control" id="btn-relay1" disabled>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                                <div class="control-item">
+                                    <h6>Bơm (R2)</h6>
+                                    <label class="switch mt-2">
+                                        <input type="checkbox" class="manual-control" id="btn-relay2" disabled>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mt-4 mb-0">
+                    <div class="card-header"><i class="fas fa-terminal"></i> Nhật ký hoạt động (System Log)</div>
+                    <div class="card-body">
+                        <div class="log-box" id="system-log"></div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+<script src="script.js"></script>
+
+</body>
+</html>

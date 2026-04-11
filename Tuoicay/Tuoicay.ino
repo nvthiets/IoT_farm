@@ -6,19 +6,21 @@
 #include <PubSubClient.h> 
 
 // --- CẤU HÌNH WIFI ---
-const char* ssid = "nvthiets"; 
+const char* ssid = "nvthiets";
 const char* password = "79831204@";
 
 // --- CẤU HÌNH MQTT BROKER ---
-const char* mqtt_server = "172.20.10.2"; 
+const char* mqtt_server = "172.20.10.2";
 const int mqtt_port = 1883; 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
+
 unsigned long lastMqttReconnectAttempt = 0;
+unsigned long lastWifiReconnectAttempt = 0; // Thêm biến đếm thời gian cho Wifi giống Thuycanh_IoT
 
 // --- CẤU HÌNH THỜI GIAN ---
 const char* ntpServer = "pool.ntp.org";
-const long  gmtOffset_sec = 7 * 3600; 
+const long  gmtOffset_sec = 7 * 3600;
 const int   daylightOffset_sec = 0;
 
 // --- ĐỊNH NGHĨA CHÂN (PINS) ---
@@ -26,9 +28,9 @@ const int   daylightOffset_sec = 0;
 #define DHTTYPE DHT11
 #define LDR_PIN 33
 #define SOIL_PIN 34    
-#define RELAY1_PIN 14  // Quạt
-#define RELAY2_PIN 26  // Bơm
-#define BUZZER_PIN 13  // Còi
+#define RELAY1_PIN 14  
+#define RELAY2_PIN 26  
+#define BUZZER_PIN 13  
 #define BTN1_PIN 5     // Nút MENU
 #define BTN2_PIN 17    // Nút UP
 #define BTN3_PIN 16    // Nút DOWN
@@ -43,17 +45,18 @@ int currentLight = 0, currentSoil = 0;
 int tempThreshold = 30; 
 int soilThreshold = 40; 
 
-int menuMode = 0; 
+int menuMode = 0;
 bool updateDisplay = true; 
 bool isAutoMode = true; 
 
-// Biến cho Còi báo 5 giây
+// Biến cho Còi báo
 bool isBuzzerActive = false;
 unsigned long buzzerStartTime = 0;
 bool lastTempExceeded = false;
 bool lastSoilExceeded = false;
 
 unsigned long lastSensorRead = 0;
+unsigned long lastFastSensorRead = 0;
 unsigned long lastClockTick = 0; 
 
 void publishData(const char* timeStr);
@@ -67,23 +70,21 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   if (topicStr == "smartfarm/control/mode") {
     if (msg == "AUTO") isAutoMode = true;
     else if (msg == "MANUAL") isAutoMode = false;
-
-    updateDisplay = true; // Cập nhật màn hình LCD
-    
-    // THÊM DÒNG NÀY: Phát ngược trạng thái lại lên MQTT để đồng bộ TẤT CẢ các giao diện Web (Laptop, Điện thoại...)
+    updateDisplay = true;
     mqttClient.publish("smartfarm/status/mode", isAutoMode ? "AUTO" : "MANUAL");
   }
+  
   if (topicStr == "smartfarm/control/threshold/temp") { tempThreshold = msg.toInt(); updateDisplay = true; }
   if (topicStr == "smartfarm/control/threshold/soil") { soilThreshold = msg.toInt(); updateDisplay = true; }
 
   if (!isAutoMode) {
     if (topicStr == "smartfarm/control/relay1") {
-      digitalWrite(RELAY1_PIN, msg == "ON" ? HIGH : LOW); 
+      digitalWrite(RELAY1_PIN, msg == "ON" ? HIGH : LOW);
       updateDisplay = true;
       mqttClient.publish("smartfarm/status/relay1", msg == "ON" ? "ON" : "OFF");
     }
     if (topicStr == "smartfarm/control/relay2") {
-      digitalWrite(RELAY2_PIN, msg == "ON" ? HIGH : LOW); 
+      digitalWrite(RELAY2_PIN, msg == "ON" ? HIGH : LOW);
       updateDisplay = true;
       mqttClient.publish("smartfarm/status/relay2", msg == "ON" ? "ON" : "OFF");
     }
@@ -91,61 +92,56 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 }
 
 boolean reconnectMQTT() {
-  if (mqttClient.connect("ESP32_SmartFarm_Client")) {
+  String clientId = "ESP32_SmartFarm_";
+  clientId += String(random(0, 1000));
+
+  if (mqttClient.connect(clientId.c_str())) {
     mqttClient.subscribe("smartfarm/control/mode");
     mqttClient.subscribe("smartfarm/control/threshold/temp");
     mqttClient.subscribe("smartfarm/control/threshold/soil");
     mqttClient.subscribe("smartfarm/control/relay1");
     mqttClient.subscribe("smartfarm/control/relay2");
+    mqttClient.publish("smartfarm/status/mode", isAutoMode ? "AUTO" : "MANUAL");
     return true;
   }
   return false;
 }
 
-// --- XỬ LÝ NÚT NHẤN ---
+// --- XỬ LÝ NÚT NHẤN (Tối ưu chống dội giống bản Thủy Canh) ---
 void handleButtons() {
   unsigned long now = millis();
   static unsigned long btnMenuPressTime = 0;
   static bool isMenuPressed = false;
   static bool longPressHandled = false;
+  static unsigned long lastDebounceTime = 0; 
 
-  // 1. NÚT MENU
   if (digitalRead(BTN1_PIN) == LOW) {
-    if (!isMenuPressed) {
-      delay(30); 
-      if (digitalRead(BTN1_PIN) == LOW) { 
+    if ((now - lastDebounceTime) > 50) { 
+      if (!isMenuPressed) {
         isMenuPressed = true;
-        btnMenuPressTime = millis();
-        longPressHandled = false;
-      }
-    } else {
-      if (!longPressHandled && (millis() - btnMenuPressTime >= 3000)) {
-        isAutoMode = !isAutoMode; 
-        lcd.clear(); 
-        updateDisplay = true;
-        longPressHandled = true; 
-        if (mqttClient.connected()) mqttClient.publish("smartfarm/status/mode", isAutoMode ? "AUTO" : "MANUAL");
+        btnMenuPressTime = now; longPressHandled = false;
+      } else {
+        if (!longPressHandled && (now - btnMenuPressTime >= 3000)) {
+          isAutoMode = !isAutoMode;
+          lcd.clear(); updateDisplay = true; longPressHandled = true; 
+          if (mqttClient.connected()) mqttClient.publish("smartfarm/status/mode", isAutoMode ? "AUTO" : "MANUAL");
+        }
       }
     }
   } else {
+    lastDebounceTime = now;
     if (isMenuPressed) {
-      delay(30); 
-      if (digitalRead(BTN1_PIN) == HIGH) {
-        isMenuPressed = false;
-        if (!longPressHandled) {
-          menuMode++; 
-          if (menuMode > 2) menuMode = 0; 
-          lcd.clear(); 
-          updateDisplay = true;
-        }
+      isMenuPressed = false;
+      if (!longPressHandled) {
+        menuMode++; if (menuMode > 2) menuMode = 0; 
+        lcd.clear(); updateDisplay = true;
       }
     }
   }
 
-  // 2. NÚT UP (Chỉnh ngưỡng hoặc bật Relay 1)
   static unsigned long lastBtnUp = 0;
   if (digitalRead(BTN2_PIN) == LOW && (now - lastBtnUp > 250)) {
-    if (menuMode == 1) tempThreshold++; 
+    if (menuMode == 1) tempThreshold++;
     else if (menuMode == 2) soilThreshold++;
     else if (menuMode == 0 && !isAutoMode) {
       bool state = digitalRead(RELAY1_PIN);
@@ -155,10 +151,9 @@ void handleButtons() {
     updateDisplay = true; lastBtnUp = now;
   }
 
-  // 3. NÚT DOWN (Chỉnh ngưỡng hoặc bật Relay 2)
   static unsigned long lastBtnDown = 0;
   if (digitalRead(BTN3_PIN) == LOW && (now - lastBtnDown > 250)) {
-    if (menuMode == 1) tempThreshold--; 
+    if (menuMode == 1) tempThreshold--;
     else if (menuMode == 2) soilThreshold--;
     else if (menuMode == 0 && !isAutoMode) {
       bool state = digitalRead(RELAY2_PIN);
@@ -176,13 +171,12 @@ void controlSystem() {
     bool isSoilDry = (currentSoil <= soilThreshold && currentSoil != 0);
 
     if (digitalRead(RELAY1_PIN) != isTempHigh) {
-      digitalWrite(RELAY1_PIN, isTempHigh); updateDisplay = true; 
+      digitalWrite(RELAY1_PIN, isTempHigh); updateDisplay = true;
     }
     if (digitalRead(RELAY2_PIN) != isSoilDry) {
       digitalWrite(RELAY2_PIN, isSoilDry); updateDisplay = true;
     }
 
-    // Logic Còi hú 5 giây
     if ((isTempHigh && !lastTempExceeded) || (isSoilDry && !lastSoilExceeded)) {
       isBuzzerActive = true;
       buzzerStartTime = millis();
@@ -195,55 +189,58 @@ void controlSystem() {
   }
 }
 
-// --- HIỂN THỊ LCD ---
+// --- HIỂN THỊ LCD 20x4 ---
 void drawLCD() {
   if (!updateDisplay) return;
 
   if (menuMode == 0) {
-    String stQ = digitalRead(RELAY1_PIN) ? "ON" : "OFF";
-    String stB = digitalRead(RELAY2_PIN) ? "ON" : "OFF";
-    String tStr = String((int)currentTemp) + (char)223 + "C";
-    String hStr = String((int)currentHum) + "%";
-    String lStr = String(currentLight) + "%";
-    String sStr = String(currentSoil) + "%";
-
+    char rowBuf[30]; 
     struct tm timeinfo;
     char timeStr[9] = "--:--:--"; 
     if (getLocalTime(&timeinfo, 10)) sprintf(timeStr, "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
 
-    lcd.setCursor(0, 0); lcd.print(isAutoMode ? "[A]" : "[M]"); 
-    lcd.setCursor(6, 0); lcd.print(timeStr);
-    lcd.setCursor(19, 0); lcd.print(mqttClient.connected() ? "W" : "!"); 
+    char modeChar = isAutoMode ? 'A' : 'M';
+    char mqttChar = mqttClient.connected() ? 'W' : '!';
+    sprintf(rowBuf, "[%c]    %s    %c", modeChar, timeStr, mqttChar); 
+    lcd.setCursor(0, 0); lcd.print(rowBuf);
 
-    char rowBuf[21];
-    sprintf(rowBuf, "Temp:%-5s|Humi:%-4s", tStr.c_str(), hStr.c_str());
+    // Chuẩn bị biến giá trị (bỏ khoảng trắng ở đầu)
+    char vT[6], vH[6], vL[6], vS[6];
+    sprintf(vT, "%d%cC", (int)currentTemp, 223); 
+    sprintf(vH, "%d%%", (int)currentHum);        
+    sprintf(vL, "%d%%", currentLight);           
+    sprintf(vS, "%d%%", currentSoil);            
+
+    String stQ = digitalRead(RELAY1_PIN) ? "ON" : "OFF";
+    String stB = digitalRead(RELAY2_PIN) ? "ON" : "OFF";
+    
+    // Dòng 1: Temp & Humi
+    sprintf(rowBuf, "Temp :%-4s Humi:%-4s", vT, vH);
     lcd.setCursor(0, 1); lcd.print(rowBuf);
     
-    sprintf(rowBuf, "Quat:%-5s|Bom :%-4s", stQ.c_str(), stB.c_str());
+    // Dòng 2: Light & Soil
+    sprintf(rowBuf, "Light:%-4s Soil:%-4s", vL, vS);
     lcd.setCursor(0, 2); lcd.print(rowBuf);
     
-    sprintf(rowBuf, "Light:%-4s|Soil:%-4s", lStr.c_str(), sStr.c_str());
+    // Dòng 3: Quạt & Bơm 
+    sprintf(rowBuf, "Quat :%-4s Bom :%-4s", stQ.c_str(), stB.c_str());
     lcd.setCursor(0, 3); lcd.print(rowBuf);
   } 
   else if (menuMode == 1) {
     lcd.setCursor(0, 0); lcd.print("--- CAI DAT NGUONG -");
     lcd.setCursor(0, 1); lcd.print("Che do: BAT QUAT    ");
-    lcd.setCursor(0, 2); lcd.print("Nhiet do: "); lcd.print(tempThreshold); lcd.write(223); lcd.print("C      ");
+    lcd.setCursor(0, 2); 
+    lcd.print("Nhiet do: "); lcd.print(tempThreshold); lcd.write(223); lcd.print("C      ");
     lcd.setCursor(0, 3); lcd.print("[UP/DOWN] Thay doi  ");
   }
   else if (menuMode == 2) {
     lcd.setCursor(0, 0); lcd.print("--- CAI DAT NGUONG -");
     lcd.setCursor(0, 1); lcd.print("Che do: BAT BOM     ");
-    lcd.setCursor(0, 2); lcd.print("Am dat  : "); lcd.print(soilThreshold); lcd.print("%       ");
+    lcd.setCursor(0, 2); 
+    lcd.print("Am dat  : "); lcd.print(soilThreshold); lcd.print("%       ");
     lcd.setCursor(0, 3); lcd.print("[UP/DOWN] Thay doi  ");
   }
-  updateDisplay = false; 
-}
-
-void setup_wifi() {
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  updateDisplay = false;
 }
 
 void setup() {
@@ -254,64 +251,90 @@ void setup() {
   
   ledcAttach(BUZZER_PIN, 2000, 8);
 
-  lcd.init(); lcd.backlight(); lcd.print("Khoi dong...");
+  lcd.init(); lcd.backlight(); 
+  lcd.print("Khoi dong...");
   dht.begin();
-  setup_wifi(); 
+  
+  // Khởi tạo Wifi & Time nhưng không chặn hệ thống
+  WiFi.begin(ssid, password);
+  configTime(7 * 3600, 0, "210.245.0.11", "pool.ntp.org"); // IP NTP của FPT Việt Nam
+  //configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
   mqttClient.setServer(mqtt_server, mqtt_port);
   mqttClient.setCallback(mqttCallback);
-  lcd.clear();
+  
+  delay(1000); 
+  lcd.clear(); // Xóa chữ khởi động để vào chương trình chính
 }
 
 void loop() {
-  handleButtons(); 
   unsigned long now = millis();
+  handleButtons();
 
-  // Kiểm tra tắt còi sau 5 giây
+  // --- XỬ LÝ KẾT NỐI WIFI & MQTT NON-BLOCKING ---
+  if (WiFi.status() != WL_CONNECTED) {
+    if (now - lastWifiReconnectAttempt > 10000) {
+      lastWifiReconnectAttempt = now;
+      WiFi.disconnect(); 
+      WiFi.begin(ssid, password);
+    }
+  } else {
+    if (!mqttClient.connected()) {
+      if (now - lastMqttReconnectAttempt > 5000) {
+        lastMqttReconnectAttempt = now;
+        if (reconnectMQTT()) lastMqttReconnectAttempt = 0;
+      }
+    } else {
+      mqttClient.loop();
+    }
+  }
+
+  // Còi báo 5 giây
   if (isBuzzerActive && (now - buzzerStartTime >= 5000)) {
     isBuzzerActive = false;
     ledcWrite(BUZZER_PIN, 0);
     if (mqttClient.connected()) mqttClient.publish("smartfarm/status/buzzer", "OFF");
   }
 
-  if (!mqttClient.connected()) {
-    if (now - lastMqttReconnectAttempt > 5000) {
-      lastMqttReconnectAttempt = now;
-      if (reconnectMQTT()) lastMqttReconnectAttempt = 0;
-    }
-  } else {
-    mqttClient.loop();
-  }
-
+  // Cập nhật đồng hồ mỗi giây
   if (now - lastClockTick >= 1000) {
     lastClockTick = now;
     if (menuMode == 0) updateDisplay = true; 
   }
 
+  // Đọc cảm biến Analog (nhanh hơn)
+  if (now - lastFastSensorRead >= 600) { 
+    lastFastSensorRead = now;
+    currentLight = map(analogRead(LDR_PIN), 0, 4095, 0, 100);
+    currentSoil = map(analogRead(SOIL_PIN), 0, 4095, 0, 100);
+    if (menuMode == 0) updateDisplay = true; 
+    controlSystem();      
+  }
+
+  // Đọc DHT11 (2s/lần)
   if (now - lastSensorRead >= 2000) { 
     lastSensorRead = now;
     float t = dht.readTemperature();
     float h = dht.readHumidity();
     
     if (!isnan(t) && !isnan(h)) {
-      currentTemp = t; currentHum = h;
-      currentLight = map(analogRead(LDR_PIN), 0, 4095, 0, 100);
-      currentSoil = map(analogRead(SOIL_PIN), 0, 4095, 0, 100);
-      updateDisplay = true; 
-      controlSystem();      
-
+      currentTemp = t;
+      currentHum = h;
+      
       struct tm timeinfo;
       char timeStr[9] = "00:00:00";
       if (getLocalTime(&timeinfo, 10)) sprintf(timeStr, "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
       if (mqttClient.connected()) publishData(timeStr);
     }
   }
+  
   drawLCD();
 }
 
+// --- GỬI DỮ LIỆU LÊN MQTT ---
 void publishData(const char* timeStr) {
   char payload[150];
-  sprintf(payload, "{\"temp\":%.1f, \"hum\":%.1f, \"light\":%d, \"soil\":%d, \"time\":\"%s\"}", currentTemp, currentHum, currentLight, currentSoil, timeStr);
+  snprintf(payload, sizeof(payload), "{\"temp\":%.1f, \"hum\":%.1f, \"light\":%d, \"soil\":%d, \"time\":\"%s\"}", currentTemp, currentHum, currentLight, currentSoil, timeStr);
   mqttClient.publish("smartfarm/sensors", payload);
   mqttClient.publish("smartfarm/status/relay1", digitalRead(RELAY1_PIN) ? "ON" : "OFF");
   mqttClient.publish("smartfarm/status/relay2", digitalRead(RELAY2_PIN) ? "ON" : "OFF");
